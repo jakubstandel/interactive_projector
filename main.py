@@ -1,113 +1,119 @@
+
+import customtkinter as ctk
+from screeninfo import get_monitors
+import json
+import os
+import ir_remote
 import cv2
 import numpy as np
 import pyautogui
 import time
 from playsound import playsound
 
-# Rozlíšenie obrazovky
-screen_w, screen_h = pyautogui.size()
-pyautogui.FAILSAFE = False
 
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-if not cap.isOpened():
-    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+ctk.set_appearance_mode("System")
 
-# Zvýšený prah, keďže bez odporu je dióda extrémne jasná
-BRIGHTNESS_THRESHOLD = 40
+app = ctk.CTk()
+app.title("Interactive Projector")
+app.geometry("400x300")
 
-# Premenné pre kalibráciu
-calibration_points = []
-corner_names = ["Lavy Horny", "Pravy Horny", "Pravy Dolny", "Lavy Dolny"]
-is_calibrated = False
-transform_matrix = None
 
-is_drawing = False
-prev_ir_detected = False
+sledovanie = ""
+obrazovka = ""
 
-print("Spustený kalibračný režim. Klikni IR perom na 4 rohy obrazu.")
+moznosti_sledovania = ["Ir ovladacom a kamerov", "Sledovanim ruky"]
+moznosti_obrazoviek = []
 
-while True:
-    success, frame = cap.read()
-    if not success:
-        break
+for i, m in enumerate(get_monitors()):
+    moznosti_obrazoviek.append(f"Monitor {i+1}: {m.width}x{m.height},{m.name}")
 
-    frame = cv2.flip(frame, 1)
-    cam_h, cam_w = frame.shape[:2]
 
-    # Prevod na čiernobielo a hľadanie najjasnejšieho bodu
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (11, 11), 0)
-    minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(blurred)
 
-    cx, cy = maxLoc
-    ir_detected = maxVal > BRIGHTNESS_THRESHOLD
+def zmena_typu_sledovania(vybrana_moznost):
+    global sledovanie
+    sledovanie = vybrana_moznost
 
-    # --- FÁZA 1: KALIBRÁCIA ---
-    if not is_calibrated:
-        idx = len(calibration_points)
-        cv2.putText(frame, f"KALIBRACIA: Klikni na {corner_names[idx]} roh", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        
-        # Ak sme práve stlačili tlačidlo (IR svetlo sa objavilo tento frame)
-        if ir_detected and not prev_ir_detected:
-            calibration_points.append((cx, cy))
-            print(f"Zaznamenaný roh {corner_names[idx]}: ({cx}, {cy})")
-            
-           
-            
-            # Ak máme všetky 4 rohy, vypočítame transformačnú maticu
-            if len(calibration_points) == 4:
-                # Namapujeme rohy kamery na plné rozlíšenie monitora
-                pts2 = np.float32([[0, 0], [screen_w, 0], [screen_w, screen_h], [0, screen_h]])
-                transform_matrix = cv2.getPerspectiveTransform(pts1, pts2)
-                is_calibrated = True
-                print("Kalibrácia úspešná! Môžeš kresliť.")
-                playsound('zvuk/efekt2.wav', block=False)
-            else:
-                playsound('zvuk/efekt1.wav', block=False)
-            time.sleep(1)
-        # Vykreslenie doteraz naklikaných bodov
-        for pt in calibration_points:
-            cv2.circle(frame, pt, 5, (255, 0, 0), -1)
 
-    # --- FÁZA 2: KRESLENIE ---
-    else:
-        # Vykreslenie zeleného štvorca kalibrovanej oblasti pre vizuálnu kontrolu
-        pts = np.int32(calibration_points).reshape((-1, 1, 2))
-        cv2.polylines(frame, [pts], True, (255, 0, 0), 2)
+def zmena_typu_obrazovky(vybrana_moznost):
+    global obrazovka
+    obrazovka = vybrana_moznost
 
-        if ir_detected:
-            # Transformácia súradníc z kamery na obrazovku pomocou kalibračnej matice
-            pt_cam = np.array([[[cx, cy]]], dtype=np.float32)
-            pt_screen = cv2.perspectiveTransform(pt_cam, transform_matrix)
-            
-            screen_x, screen_y = pt_screen[0][0]
+def kalibrovat():
+    if sledovanie == "Ir ovladacom a kamerov":
+        ulozit_do_config("calibration_points", ir_remote.kalibracia())
+        print("Kalibracia dokončena. Môžeš kresliť.")
+def spustit():
+    if sledovanie == "Ir ovladacom a kamerov":
+        ir_remote.spustit(nacitat_z_config("calibration_points"))
 
-            # Zaistenie, aby kurzor neušiel mimo obrazovku a nespôsobil pád
-            screen_x = max(0, min(screen_w, int(screen_x)))
-            screen_y = max(0, min(screen_h, int(screen_y)))
+def ulozit_do_config(kluc, hodnota):
+    config_path = "config.json"
+    config_data = {}
 
-            pyautogui.moveTo(screen_x, screen_y, _pause=False)
+    # Ak súbor existuje, načítame jeho obsah
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
 
-            if not is_drawing:
-                pyautogui.mouseDown(_pause=False)
-                is_drawing = True
+    # Aktualizujeme alebo pridáme nový kľúč a hodnotu
+    config_data[kluc] = hodnota
 
-            cv2.circle(frame, (cx, cy), 15, (0, 255, 0), cv2.FILLED)
-        else:
-            if is_drawing:
-                pyautogui.mouseUp(_pause=False)
-                is_drawing = False
+    # Uložíme späť do súboru
+    with open(config_path, 'w') as f:
+        json.dump(config_data, f, indent=4)
 
-    # Uloženie stavu z tohto framu do premennej pre ďalší frame
-    prev_ir_detected = ir_detected
+def nacitat_z_config(kluc):
+    config_path = "config.json"
 
-    cv2.imshow("IR Interaktivna Tabula", frame)
+    # Ak súbor existuje, načítame jeho obsah
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+            return config_data.get(kluc, None)
+    return None
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        if is_drawing:
-            pyautogui.mouseUp(_pause=False)
-        break
 
-cap.release()
-cv2.destroyAllWindows()
+
+
+
+
+
+
+label = ctk.CTkLabel(app, text="Vyber si sposob sledovania", font=("Arial", 16))
+label.pack(pady=20)
+
+option_menu = ctk.CTkOptionMenu(
+    app, 
+    values=moznosti_sledovania, 
+    command=zmena_typu_sledovania
+)
+option_menu.pack(pady=5)
+option_menu.set("Vyber sposob") # Nastaví predvolený text
+
+
+option_menu = ctk.CTkOptionMenu(
+    app, 
+    values=moznosti_obrazoviek, 
+    command=zmena_typu_obrazovky
+)
+option_menu.pack(pady=5)
+option_menu.set("Vyber obrazovku") # Nastaví predvolený text
+
+button_frame = ctk.CTkFrame(app)
+button_frame.pack(pady=20, fill="x", padx=20)
+
+button_zrusit = ctk.CTkButton(button_frame, text="Zrusit", command=app.destroy,width=50,fg_color="red",hover_color="darkred")
+button_zrusit.pack(side="left", padx=10, pady=10,)
+
+
+button_spusit_kalibraciu = ctk.CTkButton(button_frame, text="Kalibrovat", command=kalibrovat,width=100,fg_color="blue",hover_color="darkblue")
+button_spusit_kalibraciu.pack(side="left", padx=10, pady=10)
+
+button_spusit_bez_kalibracie = ctk.CTkButton(button_frame, text="Spustit", command=spustit,width=150,fg_color="green",hover_color="darkgreen")
+button_spusit_bez_kalibracie.pack(side="left", padx=10, pady=10)
+
+
+
+
+
+app.mainloop()
