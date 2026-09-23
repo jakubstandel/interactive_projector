@@ -53,14 +53,29 @@ def zmena_typu_obrazovky(vybrana_moznost):
 
 def kalibrovat():
     global rezim
+    button_zrusit.configure(text="Stop")
     if sledovanie == "Ir ovladacom a kamerov" and rezim == "caka":
         ir_remote.calibration_points = []
         ir_remote.prev_ir_detected = False
         rezim = "ir_kalibracia"
 
 def spustit():
-    if sledovanie == "Ir ovladacom a kamerov":
-        ir_remote.spustit(config.nacitat_z_config("calibration_points"))
+    global rezim, transform_matrix
+    button_zrusit.configure(text="Stop")
+    if sledovanie == "Ir ovladacom a kamerov" and rezim == "caka":
+        global calibration_points
+        calibration_points = config.nacitat_z_config("calibration_points")
+        pts1 = np.float32(calibration_points)
+        pts2 = np.float32([[0, 0], [screen_w, 0], [screen_w, screen_h], [0, screen_h]])
+        transform_matrix = cv2.getPerspectiveTransform(pts1, pts2)
+        rezim = "ir_sledovanie"
+def stop():
+    global rezim
+    if rezim != "caka":
+        rezim = "caka"
+        button_zrusit.configure(text="Zrusit")
+    else:
+        app.destroy()
 
 
 
@@ -78,6 +93,13 @@ def obnov_video():
             if is_calibrated:
                 rezim = "caka"
                 print("Kalibrácia dokončená.")
+
+
+
+        elif rezim == "ir_sledovanie":
+            new_frame = ir_remote.spustit(frame, 40, screen_w, screen_h, transform_matrix, calibration_points)
+
+
         else:
             new_frame = frame
 
@@ -124,7 +146,7 @@ option_menu.set("Vyber obrazovku") # Nastaví predvolený text
 button_frame = ctk.CTkFrame(app)
 button_frame.pack(pady=20, fill="x", padx=20)
 
-button_zrusit = ctk.CTkButton(button_frame, text="Zrusit", command=app.destroy,width=50,fg_color="red",hover_color="darkred")
+button_zrusit = ctk.CTkButton(button_frame, text="Zrusit", command=stop,width=50,fg_color="red",hover_color="darkred")
 button_zrusit.pack(side="left", padx=10, pady=10,)
 
 
