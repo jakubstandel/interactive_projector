@@ -1,52 +1,65 @@
+import cv2
 import customtkinter as ctk
+from PIL import Image
 
-# Inicializácia aplikácie
+# 1. Vytvorenie okna (bez class)
 app = ctk.CTk()
-app.title("Výber z možností")
-app.geometry("400x350")
+app.title("IR Interaktívna Tabuľa")
+app.geometry("950x550")
 
-# Zoznam možností pre naše menu
-ovocie_moznosti = ["Jablko", "Banan", "Pomaranc", "Jahoda"]
+# 2. Načítanie kamery
+cap = cv2.VideoCapture(0)
 
-# 1. FUNKCIA PRE CTkOptionMenu
-def zmena_option_menu(vybrana_moznost):
-    label_option.configure(text=f"Z OptionMenu vybrané: {vybrana_moznost}")
+# 3. Rozloženie prvkov v okne
+video_label = ctk.CTkLabel(app, text="")
+video_label.pack(side="left", padx=20, pady=20)
 
-# 2. FUNKCIA PRE CTkComboBox
-def zmena_combo_box(vybrana_moznost):
-    label_combo.configure(text=f"Z ComboBoxu vybrané: {vybrana_moznost}")
+sidebar = ctk.CTkFrame(app, width=200)
+sidebar.pack(side="right", fill="y", padx=20, pady=20)
 
-# --- SEKCIA 1: CTkOptionMenu ---
-label_title1 = ctk.CTkLabel(app, text="CTkOptionMenu (Iba pevný výber):", font=("Arial", 12, "bold"))
-label_title1.pack(pady=(20, 5))
+# --- Obyčajné funkcie pre tlačidlá (bez self) ---
+def spusti_kalibraciu():
+    print("Kalibrácia spustená...")
 
-option_menu = ctk.CTkOptionMenu(
-    app, 
-    values=ovocie_moznosti, 
-    command=zmena_option_menu
-)
-option_menu.pack(pady=5)
-option_menu.set("Vyber si ovocie") # Nastaví predvolený text
+def resetuj():
+    print("Resetované!")
 
-label_option = ctk.CTkLabel(app, text="Zatiaľ nič nevybrané", font=("Arial", 11, "italic"))
-label_option.pack(pady=(0, 20))
+def zmena_jasu(hodnota):
+    print(f"Prah jasu: {int(hodnota)}")
 
+# --- Tlačidlá a posuvník ---
+btn_calibrate = ctk.CTkButton(sidebar, text="Spustiť kalibráciu", command=spusti_kalibraciu)
+btn_calibrate.pack(pady=15, padx=15)
 
-# --- SEKCIA 2: CTkComboBox ---
-label_title2 = ctk.CTkLabel(app, text="CTkComboBox (Výber alebo vlastné dopísanie):", font=("Arial", 12, "bold"))
-label_title2.pack(pady=(10, 5))
+btn_reset = ctk.CTkButton(sidebar, text="Resetovať", fg_color="red", command=resetuj)
+btn_reset.pack(pady=15, padx=15)
 
-combo_box = ctk.CTkComboBox(
-    app, 
-    values=ovocie_moznosti, 
-    command=zmena_combo_box
-)
-combo_box.pack(pady=5)
-combo_box.set("Napíš alebo vyber") # Nastaví predvolený text
+slider_thresh = ctk.CTkSlider(sidebar, from_=10, to=255, command=zmena_jasu)
+slider_thresh.set(180)
+slider_thresh.pack(pady=15, padx=15)
 
-label_combo = ctk.CTkLabel(app, text="Zatiaľ nič nevybrané", font=("Arial", 11, "italic"))
-label_combo.pack(pady=(0, 20))
+# 4. Funkcia, ktorá stále dokola obnovuje obraz z kamery
+def obnov_video():
+    success, frame = cap.read()
+    if success:
+        frame = cv2.flip(frame, 1)
 
+        # Tu spracuješ IR bod (OpenCV logika)
+        # ...
 
-# Spustenie aplikácie
+        # Prevod obrazu z OpenCV (BGR) do formátu pre CustomTkinter (RGB)
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(frame_rgb)
+        
+        ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(640, 480))
+        video_label.configure(image=ctk_img)
+
+    # Zavolá sama seba o 15 miliseúnd (plynulých ~60 FPS)
+    app.after(15, obnov_video)
+
+# Spustenie obnovovania videa a hlavnej slučky okna
+obnov_video()
 app.mainloop()
+
+# Po zatvorení okna uvoľníme kameru
+cap.release()

@@ -3,12 +3,16 @@ import customtkinter as ctk
 from screeninfo import get_monitors
 import json
 import os
+
+os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"  # Vypne MSMF backend
 import ir_remote
 import cv2
 import numpy as np
 import pyautogui
 import time
 from playsound import playsound
+from PIL import Image
+import config
 
 
 ctk.set_appearance_mode("System")
@@ -18,8 +22,17 @@ app.title("Interactive Projector")
 app.geometry("400x300")
 
 
+
+screen_w, screen_h = pyautogui.size()
+pyautogui.FAILSAFE = False
+
+
+cap = cv2.VideoCapture(0)
+
+
 sledovanie = ""
 obrazovka = ""
+rezim = "caka"
 
 moznosti_sledovania = ["Ir ovladacom a kamerov", "Sledovanim ruky"]
 moznosti_obrazoviek = []
@@ -39,39 +52,48 @@ def zmena_typu_obrazovky(vybrana_moznost):
     obrazovka = vybrana_moznost
 
 def kalibrovat():
-    if sledovanie == "Ir ovladacom a kamerov":
-        ulozit_do_config("calibration_points", ir_remote.kalibracia())
-        print("Kalibracia dokončena. Môžeš kresliť.")
+    global rezim
+    if sledovanie == "Ir ovladacom a kamerov" and rezim == "caka":
+        ir_remote.calibration_points = []
+        ir_remote.prev_ir_detected = False
+        rezim = "ir_kalibracia"
+
 def spustit():
     if sledovanie == "Ir ovladacom a kamerov":
-        ir_remote.spustit(nacitat_z_config("calibration_points"))
+        ir_remote.spustit(config.nacitat_z_config("calibration_points"))
 
-def ulozit_do_config(kluc, hodnota):
-    config_path = "config.json"
-    config_data = {}
 
-    # Ak súbor existuje, načítame jeho obsah
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config_data = json.load(f)
 
-    # Aktualizujeme alebo pridáme nový kľúč a hodnotu
-    config_data[kluc] = hodnota
 
-    # Uložíme späť do súboru
-    with open(config_path, 'w') as f:
-        json.dump(config_data, f, indent=4)
+def obnov_video():
+    stari_cas = time.time()
+    global rezim
+    success, frame = cap.read()
+    if success:
+        frame = cv2.flip(frame, 1)
+        cam_h, cam_w = frame.shape[:2]
 
-def nacitat_z_config(kluc):
-    config_path = "config.json"
+        if rezim == "ir_kalibracia":
+            new_frame, is_calibrated = ir_remote.kalibracia(frame, 40, screen_w, screen_h)
+            if is_calibrated:
+                rezim = "caka"
+                print("Kalibrácia dokončená.")
+        else:
+            new_frame = frame
 
-    # Ak súbor existuje, načítame jeho obsah
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config_data = json.load(f)
-            return config_data.get(kluc, None)
-    return None
+        cv2.putText(new_frame, f"FPS: {round(1/(time.time()-stari_cas), 2)}", (10, cam_h-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
+
+        # Prevod obrazu z OpenCV (BGR) do formátu pre CustomTkinter (RGB)
+        frame_rgb = cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(frame_rgb)
+        
+        ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(480, 360))
+        video_label.configure(image=ctk_img)
+
+    # Zavolá sama seba o 15 miliseúnd (plynulých ~60 FPS)
+    app.after(15, obnov_video)
 
 
 
@@ -112,8 +134,11 @@ button_spusit_kalibraciu.pack(side="left", padx=10, pady=10)
 button_spusit_bez_kalibracie = ctk.CTkButton(button_frame, text="Spustit", command=spustit,width=150,fg_color="green",hover_color="darkgreen")
 button_spusit_bez_kalibracie.pack(side="left", padx=10, pady=10)
 
+video_label = ctk.CTkLabel(app, text="")
+video_label.pack()
 
 
 
-
+obnov_video()
 app.mainloop()
+cap.release()

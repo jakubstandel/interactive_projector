@@ -3,6 +3,151 @@ import numpy as np
 import pyautogui
 import time
 from playsound import playsound
+import config
+
+   # Premenné pre kalibráciu
+
+
+calibration_points = []
+corner_names = ["Lavy Horny", "Pravy Horny", "Pravy Dolny", "Lavy Dolny"]
+prev_ir_detected = False  # <--- 1. PRIDANÁ GLOBÁLNA PREMENNÁ PRE STAV
+cas_od_posledneho_stlacenia = 0  # <--- 2. PRIDANÁ GLOBÁLNA PREMENNÁ PRE ČAS POSLEDNÉHO STLAČENIA
+
+
+def kalibracia(frame, BRIGHTNESS_THRESHOLD, screen_w, screen_h):
+    global prev_ir_detected, cas_od_posledneho_stlacenia, calibration_points
+
+    
+
+
+    frame = cv2.flip(frame, 1)
+    cam_h, cam_w = frame.shape[:2]
+
+    # Prevod na čiernobielo a hľadanie najjasnejšieho bodu
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (11, 11), 0)
+    minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(blurred)
+
+    cx, cy = maxLoc
+    ir_detected = maxVal > BRIGHTNESS_THRESHOLD
+    idx = len(calibration_points)
+    cv2.putText(frame, f"KALIBRACIA: Klikni na {corner_names[idx]} roh", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    
+    # Ak sme práve stlačili tlačidlo (IR svetlo sa objavilo tento frame)
+    if ir_detected and not prev_ir_detected and not (time.time() - cas_od_posledneho_stlacenia < 1):
+        cas_od_posledneho_stlacenia = time.time()
+        calibration_points.append((cx, cy))
+        print(f"Zaznamenaný roh {corner_names[idx]}: ({cx}, {cy})")
+        
+        
+        
+        # Ak máme všetky 4 rohy, vypočítame transformačnú maticu
+        if len(calibration_points) == 4:
+            # Namapujeme rohy kamery na plné rozlíšenie monitora
+            pts2 = np.float32([[0, 0], [screen_w, 0], [screen_w, screen_h], [0, screen_h]])
+
+
+            is_calibrated = True
+            print("Kalibrácia úspešná! Môžeš kresliť.")
+            playsound('zvuk/efekt2.wav', block=False)
+            config.ulozit_do_config("calibration_points", calibration_points)
+            prev_ir_detected = ir_detected
+            return frame, is_calibrated
+
+        else:
+            playsound('zvuk/efekt1.wav', block=False)
+            
+        
+    # Vykreslenie doteraz naklikaných bodov
+    for pt in calibration_points:
+        cv2.circle(frame, pt, 5, (255, 0, 0), -1)
+
+
+
+ 
+
+    is_calibrated = False
+    return frame, is_calibrated
+
+
+
+
+def kalibracia_old():
+    # Rozlíšenie obrazovky
+    print("Spustená kalibrácia IR pera. Postupuj podľa pokynov na obrazovke.")
+    screen_w, screen_h = pyautogui.size()
+    pyautogui.FAILSAFE = False
+
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+
+
+    # Zvýšený prah, keďže bez odporu je dióda extrémne jasná
+    BRIGHTNESS_THRESHOLD = 40
+
+    # Premenné pre kalibráciu
+    calibration_points = []
+    corner_names = ["Lavy Horny", "Pravy Horny", "Pravy Dolny", "Lavy Dolny"]
+    is_calibrated = False
+    transform_matrix = None
+    prev_ir_detected = False
+
+
+    while not is_calibrated:
+        stari_cas = time.time()
+        success, frame = cap.read()
+        if not success:
+            break
+
+        frame = cv2.flip(frame, 1)
+        cam_h, cam_w = frame.shape[:2]
+
+        # Prevod na čiernobielo a hľadanie najjasnejšieho bodu
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (11, 11), 0)
+        minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(blurred)
+
+        cx, cy = maxLoc
+        ir_detected = maxVal > BRIGHTNESS_THRESHOLD
+        idx = len(calibration_points)
+        cv2.putText(frame, f"KALIBRACIA: Klikni na {corner_names[idx]} roh", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        
+        # Ak sme práve stlačili tlačidlo (IR svetlo sa objavilo tento frame)
+        if ir_detected and not prev_ir_detected:
+            calibration_points.append((cx, cy))
+            print(f"Zaznamenaný roh {corner_names[idx]}: ({cx}, {cy})")
+            
+            
+            
+            # Ak máme všetky 4 rohy, vypočítame transformačnú maticu
+            if len(calibration_points) == 4:
+                # Namapujeme rohy kamery na plné rozlíšenie monitora
+                pts2 = np.float32([[0, 0], [screen_w, 0], [screen_w, screen_h], [0, screen_h]])
+
+                cap.release()
+                cv2.destroyAllWindows()
+                is_calibrated = True
+                print("Kalibrácia úspešná! Môžeš kresliť.")
+                playsound('zvuk/efekt2.wav', block=False)
+                return calibration_points
+
+            else:
+                playsound('zvuk/efekt1.wav', block=False)
+            time.sleep(1)
+        # Vykreslenie doteraz naklikaných bodov
+        for pt in calibration_points:
+            cv2.circle(frame, pt, 5, (255, 0, 0), -1)
+        prev_ir_detected = ir_detected
+
+
+        cv2.putText(frame, f"FPS: {round(1/(time.time()-stari_cas), 2)}", (10, cam_h-10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.imshow("IR Interaktivna Tabula", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
 def spustit(calibration_points):
     print("Program spustený. Stlač 'q' v okne videa pre ukončenie.")
