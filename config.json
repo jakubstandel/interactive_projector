@@ -16,5 +16,8 @@
             546,
             461
         ]
-    ]
+    ],
+    "BRIGHTNESS_THRESHOLD": 40,
+    "obrazovka": "Monitor 1: 1920x1080,\\\\.\\DISPLAY1",
+    "sledovanie": "Sledovanim ruky"
 }

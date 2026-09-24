@@ -19,7 +19,7 @@ ctk.set_appearance_mode("System")
 
 app = ctk.CTk()
 app.title("Interactive Projector")
-app.geometry("400x300")
+app.geometry("665x440")
 
 
 
@@ -30,9 +30,11 @@ pyautogui.FAILSAFE = False
 cap = cv2.VideoCapture(0)
 
 
-sledovanie = ""
-obrazovka = ""
+sledovanie = config.nacitat_z_config("sledovanie")
+obrazovka = config.nacitat_z_config("obrazovka")
 rezim = "caka"
+BRIGHTNESS_THRESHOLD = config.nacitat_z_config("BRIGHTNESS_THRESHOLD")
+
 
 moznosti_sledovania = ["Ir ovladacom a kamerov", "Sledovanim ruky"]
 moznosti_obrazoviek = []
@@ -45,11 +47,13 @@ for i, m in enumerate(get_monitors()):
 def zmena_typu_sledovania(vybrana_moznost):
     global sledovanie
     sledovanie = vybrana_moznost
+    config.ulozit_do_config("sledovanie", sledovanie)  # Uložíme vybranú možnosť do config.json
 
 
 def zmena_typu_obrazovky(vybrana_moznost):
     global obrazovka
     obrazovka = vybrana_moznost
+    config.ulozit_do_config("obrazovka", obrazovka)  # Uložíme vybranú možnosť do config.json
 
 def kalibrovat():
     global rezim
@@ -77,6 +81,19 @@ def stop():
     else:
         app.destroy()
 
+def pridat_citlivost():
+    global BRIGHTNESS_THRESHOLD
+    if BRIGHTNESS_THRESHOLD < 255:
+        BRIGHTNESS_THRESHOLD += 5
+        citlivost.configure(text=f"{BRIGHTNESS_THRESHOLD}")
+        config.ulozit_do_config("BRIGHTNESS_THRESHOLD", BRIGHTNESS_THRESHOLD)
+def ubrat_citlivost():
+    global BRIGHTNESS_THRESHOLD
+    if BRIGHTNESS_THRESHOLD > 0:
+        BRIGHTNESS_THRESHOLD -= 5
+        citlivost.configure(text=f"{BRIGHTNESS_THRESHOLD}")
+        config.ulozit_do_config("BRIGHTNESS_THRESHOLD", BRIGHTNESS_THRESHOLD)
+
 
 
 
@@ -89,7 +106,7 @@ def obnov_video():
         cam_h, cam_w = frame.shape[:2]
 
         if rezim == "ir_kalibracia":
-            new_frame, is_calibrated = ir_remote.kalibracia(frame, 40, screen_w, screen_h)
+            new_frame, is_calibrated = ir_remote.kalibracia(frame, BRIGHTNESS_THRESHOLD, screen_w, screen_h)
             if is_calibrated:
                 rezim = "caka"
                 print("Kalibrácia dokončená.")
@@ -97,7 +114,7 @@ def obnov_video():
 
 
         elif rezim == "ir_sledovanie":
-            new_frame = ir_remote.spustit(frame, 40, screen_w, screen_h, transform_matrix, calibration_points)
+            new_frame = ir_remote.spustit(frame, BRIGHTNESS_THRESHOLD, screen_w, screen_h, transform_matrix, calibration_points)
 
 
         else:
@@ -123,41 +140,61 @@ def obnov_video():
 
 
 
-label = ctk.CTkLabel(app, text="Vyber si sposob sledovania", font=("Arial", 16))
-label.pack(pady=20)
+option_frame = ctk.CTkFrame(app)
+option_frame.grid(row=0, column=1, pady=10 , padx=20, sticky="n")
+
+nastavenia_label = ctk.CTkLabel(option_frame, text="Nastavenia")
+nastavenia_label.grid(row=0, column=0, pady=5)
 
 option_menu = ctk.CTkOptionMenu(
-    app, 
+    option_frame, 
     values=moznosti_sledovania, 
     command=zmena_typu_sledovania
 )
-option_menu.pack(pady=5)
-option_menu.set("Vyber sposob") # Nastaví predvolený text
+option_menu.grid(row=1, column=0, pady=5, padx=5)
+option_menu.set(sledovanie) # Nastaví predvolený text
 
 
 option_menu = ctk.CTkOptionMenu(
-    app, 
+    option_frame, 
     values=moznosti_obrazoviek, 
     command=zmena_typu_obrazovky
 )
-option_menu.pack(pady=5)
-option_menu.set("Vyber obrazovku") # Nastaví predvolený text
+option_menu.grid(row=2, column=0, pady=5, padx=5)
+option_menu.set(obrazovka) # Nastaví predvolený text
+
+citlivost_frame = ctk.CTkFrame(option_frame)
+citlivost_frame.grid(row=3, column=0, pady=5)
+
+nadpis_citlivost = ctk.CTkLabel(citlivost_frame, text="Citlivost")
+nadpis_citlivost.grid(row=0, column=0,columnspan=2, pady=5)
+
+citlivost = ctk.CTkLabel(citlivost_frame, text=f"{BRIGHTNESS_THRESHOLD}")
+citlivost.grid(row=1, column=0,columnspan=2, padx=5)
+
+pridat_citlivost = ctk.CTkButton(citlivost_frame, command=pridat_citlivost, text="Pridať",width=30)
+pridat_citlivost.grid(row=2, column=1, padx=5, pady=5)
+
+ubrat_citlivost = ctk.CTkButton(citlivost_frame, command=ubrat_citlivost, text="Ubrať",width=30)
+ubrat_citlivost.grid(row=2, column=0, padx=5, pady=5)
+
+video_label = ctk.CTkLabel(app, text="")
+video_label.grid(row=0, column=0, pady=10)
 
 button_frame = ctk.CTkFrame(app)
-button_frame.pack(pady=20, fill="x", padx=20)
+button_frame.grid(row=4, column=0, padx=20)
 
 button_zrusit = ctk.CTkButton(button_frame, text="Zrusit", command=stop,width=50,fg_color="red",hover_color="darkred")
-button_zrusit.pack(side="left", padx=10, pady=10,)
+button_zrusit.grid(row=0, column=0, padx=10, pady=10)
 
 
 button_spusit_kalibraciu = ctk.CTkButton(button_frame, text="Kalibrovat", command=kalibrovat,width=100,fg_color="blue",hover_color="darkblue")
-button_spusit_kalibraciu.pack(side="left", padx=10, pady=10)
+button_spusit_kalibraciu.grid(row=0, column=1, padx=10, pady=10)
 
 button_spusit_bez_kalibracie = ctk.CTkButton(button_frame, text="Spustit", command=spustit,width=150,fg_color="green",hover_color="darkgreen")
-button_spusit_bez_kalibracie.pack(side="left", padx=10, pady=10)
+button_spusit_bez_kalibracie.grid(row=0, column=2, padx=10, pady=10)
 
-video_label = ctk.CTkLabel(app, text="")
-video_label.pack()
+
 
 
 
